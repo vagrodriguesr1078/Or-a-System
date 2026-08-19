@@ -9585,13 +9585,13 @@ async function sbTestConnection(){
      Se o banco estiver mesmo vazio (primeira conexão de todas), o pull
      não faz nada e o push seguinte semeia a nuvem normalmente. */
 async function sbSyncTables(tables, silent, pullFirst){
-  var falhas=[];
+  var falhas=[]; var failedTables=[];
   var ordem = pullFirst ? [sbPullTable, sbPushTable] : [sbPushTable, sbPullTable];
   for(var i=0;i<tables.length;i++){
-    try{ await ordem[0](tables[i]); }catch(e){ falhas.push(e.message); console.error(e); }
+    try{ await ordem[0](tables[i]); }catch(e){ falhas.push(e.message); if(failedTables.indexOf(tables[i])<0) failedTables.push(tables[i]); console.error(e); }
   }
   for(var k=0;k<tables.length;k++){
-    try{ await ordem[1](tables[k]); }catch(e){ falhas.push(e.message); console.error(e); }
+    try{ await ordem[1](tables[k]); }catch(e){ falhas.push(e.message); if(failedTables.indexOf(tables[k])<0) failedTables.push(tables[k]); console.error(e); }
   }
   if(falhas.length){
     sbSetStatus('Sincronizado com falhas ⚠️','var(--amber)');
@@ -9601,9 +9601,11 @@ async function sbSyncTables(tables, silent, pullFirst){
     if(!silent) showToast('☁️ Sincronização real concluída com o Supabase.','success');
   }
   DB.save('sb_last_sync',new Date().toISOString());
+  return failedTables;
 }
 async function sbFullSync(){
   if(SB.busy) return;
+  if(!navigator.onLine) throw new Error('Sem conexão com a internet — os dados continuam salvos neste dispositivo.');
   var c=sbPersistCfg();
   if(!c.url || !c.anonKey) throw new Error('Informe a Project URL e a Anon Key do Supabase.');
   var session=await sbSession();
@@ -9615,28 +9617,45 @@ async function sbFullSync(){
   }finally{ SB.busy=false; }
 }
 /* Sync automático: só reenvia as tabelas que realmente foram salvas desde
-   a última vez (SB.dirty), não as 19 de uma vez. */
+   a última vez (SB.dirty), não as 19 de uma vez. Só apaga a marcação de
+   "pendente" das tabelas que realmente confirmaram sucesso — se a rede cair
+   no meio do envio, a(s) tabela(s) que falharam continuam marcadas em
+   SB.dirty e são retentadas na próxima chamada (ex.: ao reconectar). */
 async function sbSyncDirty(){
   if(SB.busy) return;
   var tables=Object.keys(SB.dirty);
   if(!tables.length) return;
-  SB.dirty={};
   SB.busy=true;
   try{
     sbSetStatus('Sincronizando...','var(--amber)');
-    await sbSyncTables(tables, true);
+    var failedTables=await sbSyncTables(tables, true);
+    tables.forEach(function(t){ if(failedTables.indexOf(t)<0) delete SB.dirty[t]; });
   }finally{ SB.busy=false; }
 }
 function scheduleSupabaseSync(){
   if(window._syncingSupabase || SB.busy) return;
   clearTimeout(SB.timer);
   SB.timer=setTimeout(function(){
+    if(!navigator.onLine){ sbSetStatus('Offline — salvo neste dispositivo','var(--amber)'); return; }
     sbSession().then(function(session){
       if(!session) return;
       return sbSyncDirty();
-    }).catch(function(e){console.error(e);showToast('⚠️ Falha na sincronização: '+e.message,'error');});
+    }).catch(function(e){console.error(e); if(navigator.onLine) showToast('⚠️ Falha na sincronização: '+e.message,'error'); else sbSetStatus('Offline — salvo neste dispositivo','var(--amber)');});
   },2500);
 }
+// Assim que a conexão voltar, tenta sincronizar sozinho (envia o que ficou
+// pendente em SB.dirty e reconcilia com a nuvem), sem esperar a próxima
+// edição do usuário para reagendar o push.
+window.addEventListener('online', function(){
+  sbSetStatus('Conexão restabelecida — sincronizando...','var(--amber)');
+  sbFullSync().then(function(){
+    SB.dirty={};
+    showToast('🌐 Conexão restabelecida — sincronizado com a nuvem.','success');
+  }).catch(function(e){ console.warn('Falha ao sincronizar após reconectar:',e&&e.message); });
+});
+window.addEventListener('offline', function(){
+  sbSetStatus('Offline — trabalhando localmente','var(--amber)');
+});
 function syncSupabase(){
   sbFullSync().catch(function(e){ console.error(e); sbSetStatus('Não conectado','var(--amber)'); showToast('❌ '+e.message,'error'); });
 }
