@@ -5951,7 +5951,18 @@ function saveOrgNos(list) { DB.save('org_nos', list); }
 // Estrutura padrão de um nó
 function noDefault(id, titulo, nome, pai, nivel, tipo) {
   return { id:id, titulo:titulo||'', nome:nome||'', pai:pai||null,
-           nivel:nivel||0, tipo:tipo||'normal', dedicacao:'', x:0, y:0 };
+           nivel:nivel||0, tipo:tipo||'normal', dedicacao:'', foto:'', x:0, y:0 };
+}
+
+function uploadFotoNo(id, input) {
+  var file = input.files && input.files[0]; if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) { salvarCampoNo(id, 'foto', e.target.result); renderOrgNosLista(); };
+  reader.readAsDataURL(file);
+}
+function removerFotoNo(id) {
+  salvarCampoNo(id, 'foto', '');
+  renderOrgNosLista();
 }
 
 function initOrganograma() {
@@ -6082,7 +6093,7 @@ function salvarCampoNo(id, campo, val) {
   n[campo] = campo==='pai' ? (val===''?null:parseInt(val)) : val;
   if(campo==='pai') n.nivel = calcNivel(nos, id);
   saveOrgNos(nos);
-  if(campo==='titulo'||campo==='nome'||campo==='pai'||campo==='tipo'||campo==='dedicacao') renderOrganograma();
+  if(campo==='titulo'||campo==='nome'||campo==='pai'||campo==='tipo'||campo==='dedicacao'||campo==='foto') renderOrganograma();
 }
 
 function calcNivel(nos, id) {
@@ -6126,6 +6137,16 @@ function renderOrgNosLista() {
         '</div>'+
       '</div>'+
       '<div id="orgno-'+n.id+'" style="display:none;padding:8px;background:var(--bg2);">'+
+        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">'+
+          (n.foto
+            ? '<img src="'+n.foto+'" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid '+cor+';">'
+            : '<div style="width:44px;height:44px;border-radius:50%;background:var(--bg3);border:2px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--text3);">👤</div>')+
+          '<div style="flex:1;display:flex;flex-direction:column;gap:3px;">'+
+            '<label class="btn-ghost" style="font-size:10px;padding:4px 8px;text-align:center;cursor:pointer;">📷 '+(n.foto?'Trocar foto':'Adicionar foto')+
+              '<input type="file" accept="image/*" style="display:none" onchange="uploadFotoNo('+n.id+',this)"></label>'+
+            (n.foto?'<button class="btn-ghost" style="font-size:10px;padding:4px 8px;color:var(--red);" onclick="removerFotoNo('+n.id+')">✕ Remover foto</button>':'')+
+          '</div>'+
+        '</div>'+
         '<div style="margin-bottom:6px;">'+
           '<div style="font-size:9px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;">Cargo / Título</div>'+
           '<input value="'+(n.titulo||'')+'" placeholder="Ex: GERENTE DE OBRA" style="'+IS+'"'+
@@ -6165,18 +6186,15 @@ function toggleOrgNo(id) {
 }
 
 // ── RENDER ORGANOGRAMA SVG ────────────────────────────────────────
-function renderOrganograma() {
-  var el = document.getElementById('org-preview'); if(!el) return;
+// buildOrgSVG() é o construtor puro (sem tocar o DOM) — usado tanto pelo
+// preview em tela (renderOrganograma) quanto pela impressão, que precisa de
+// um SVG independente do tema escolhido na tela (sempre claro/impressão).
+function buildOrgSVG(estiloForce) {
   var nos  = getOrgNos();
-  if(!nos.length) {
-    el.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:300px;color:var(--text3);font-size:13px;">'+
-      'Adicione nós ou clique em <strong style="color:var(--accent);margin:0 4px;">📥 Importar Profissionais</strong> para gerar o organograma.</div>';
-    return;
-  }
+  if(!nos.length) return null;
 
-  var estilo = (document.getElementById('org-estilo')||{value:'dark'}).value||'dark';
+  var estilo = estiloForce || (document.getElementById('org-estilo')||{value:'dark'}).value||'dark';
   var nomeObra = (document.getElementById('org-nome-obra')||{value:''}).value||'';
-  DB.save('org_nome_obra', nomeObra);
 
   var temas = {
     dark:  {bg:'#0f1117', bg2:'#161b27', bg3:'#1e2535', bord:'rgba(255,255,255,0.12)',
@@ -6187,6 +6205,8 @@ function renderOrganograma() {
             txt:'#e8f0fe', txt2:'#93b4e4', accent:'#4d9fff', line:'rgba(61,127,245,0.3)'}
   };
   var T = estilo === 'system' ? getSystemOrgTheme() : (temas[estilo] || temas.dark);
+  // Impressão: força fundo branco puro (independente do tom "claro" da tela)
+  if(estiloForce === 'light') T = Object.assign({}, T, {bg:'#ffffff', bg2:'#ffffff', bg3:'#f4f6fa'});
 
   // Espaçamentos dinâmicos via sliders
   var H_GAP = parseInt((document.getElementById('org-hgap')||{value:14}).value)||14;
@@ -6194,19 +6214,40 @@ function renderOrganograma() {
 
   // Calcular layout em árvore
   var raizes  = nos.filter(function(n){return !n.pai;});
-  // Tamanho dos nós adaptado para caber em A4 paisagem (297x210mm)
-  // SVG max ~1100px wide para A4 landscape
-  var NIL_W = 145; var NIL_H = 62;
+  // Tamanho dos nós — pílula com foto/avatar circular à esquerda. A árvore
+  // inteira (independente da largura/altura final) é sempre reescalada para
+  // caber numa folha A3 na hora de imprimir (ver imprimirOrganograma), então
+  // aqui só define a PROPORÇÃO dos nós, não o tamanho físico impresso.
+  var NIL_W = 168; var NIL_H = 70; var AV_R = 24;
+  // Quando um nó tem muitos filhos-folha (ex.: um encarregado com 15 eletricistas),
+  // eles são organizados em várias linhas em vez de uma única linha larguíssima —
+  // isso evita que o organograma fique extremamente largo e o texto minúsculo
+  // depois de reescalar pra caber numa A3, não importa a quantidade de pessoas.
+  var WRAP_MAX = 8;
 
   // Construir árvore
   function getFilhos(paiId) {
     return nos.filter(function(n){return n.pai===paiId;});
+  }
+  function ehGrupoFolhasLargo(filhos) {
+    return filhos.length > WRAP_MAX && filhos.every(function(f){ return getFilhos(f.id).length===0; });
+  }
+  // Nº de colunas que deixa o bloco de filhos com uma proporção próxima de
+  // uma folha paisagem (mais largo que alto, mas sem virar uma fita gigante)
+  var GRID_ASPECT = 3;
+  function colsParaGrupo(n) {
+    var cellW = NIL_W+H_GAP, cellH = NIL_H+V_GAP*0.7;
+    var cols = Math.round(Math.sqrt(GRID_ASPECT * n * cellH/cellW));
+    return Math.max(3, Math.min(n, cols));
   }
 
   // Calcular largura de subárvore (recursivo)
   function subWidth(id) {
     var filhos = getFilhos(id);
     if(!filhos.length) return NIL_W + H_GAP;
+    if(ehGrupoFolhasLargo(filhos)) {
+      return colsParaGrupo(filhos.length) * (NIL_W + H_GAP);
+    }
     return filhos.reduce(function(s,f){return s+subWidth(f.id);},0);
   }
 
@@ -6215,6 +6256,16 @@ function renderOrganograma() {
 
   function posicionarSubarvore(id, x, y) {
     var filhos = getFilhos(id);
+    if(ehGrupoFolhasLargo(filhos)) {
+      var cols = colsParaGrupo(filhos.length);
+      var totalWG = cols * (NIL_W + H_GAP);
+      posicoes[id] = { x: x + (totalWG - NIL_W)/2, y: y };
+      filhos.forEach(function(f, fi){
+        var col = fi % cols, row = Math.floor(fi/cols);
+        posicoes[f.id] = { x: x + col*(NIL_W+H_GAP), y: y + NIL_H + V_GAP + row*(NIL_H+V_GAP*0.7) };
+      });
+      return;
+    }
     var totalW = filhos.length ? filhos.reduce(function(s,f){return s+subWidth(f.id);},0) : NIL_W+H_GAP;
     posicoes[id] = { x: x + (totalW - NIL_W)/2, y: y };
     var cx = x;
@@ -6249,7 +6300,7 @@ function renderOrganograma() {
   // Cores mapeadas para as variáveis do sistema (accent, purple, teal, amber, etc.)
   var sysColors = {
     dark:  {raizBg:'#3d7ff5', gestaoBg:'#8b5cf6', normalBg:'#161b27', suporteBg:'#14b8a6', externoBg:'#f59e0b'},
-    light: {raizBg:'#1a3c7a', gestaoBg:'#5b21b6', normalBg:'#ffffff', suporteBg:'#0f766e', externoBg:'#b45309'},
+    light: {raizBg:'#1a3c7a', gestaoBg:'#5b21b6', normalBg:'#eef2fb', suporteBg:'#0f766e', externoBg:'#b45309'},
     azul:  {raizBg:'#4d9fff', gestaoBg:'#7c3aed', normalBg:'#142050', suporteBg:'#0d9488', externoBg:'#d97706'}
   };
   var SC = sysColors[estilo] || sysColors.dark;
@@ -6261,9 +6312,14 @@ function renderOrganograma() {
     externo: {bg:SC.externoBg, txt:'#ffffff', bord:'rgba(255,255,255,0.15)'}
   };
 
-  // SVG
-  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="'+svgW+'" height="'+(svgH+60)+'"'+
+  // SVG — viewBox garante que, na impressão, o conteúdo inteiro sempre
+  // reescala para caber na página (ver imprimirOrganograma), não importa
+  // quantos nós existam.
+  var svgHTotal = svgH + 60;
+  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="'+svgW+'" height="'+svgHTotal+'"'+
+            ' viewBox="0 0 '+svgW+' '+svgHTotal+'" preserveAspectRatio="xMidYMid meet"'+
             ' style="font-family:Inter,Arial,sans-serif;background:'+T.bg+';" id="org-svg">';
+  svg += '<rect x="0" y="0" width="'+svgW+'" height="'+svgHTotal+'" fill="'+T.bg+'"/>';
 
   // ── Header: cliente ESQUERDO · título CENTRO · empresa DIREITO ──────────
   var HDR_H = 70;
@@ -6328,52 +6384,61 @@ function renderOrganograma() {
            ' stroke="'+T.line+'" stroke-width="1.5" fill="none"/>';
   });
 
-  // ── Nós ───────────────────────────────────────────────────────
+  // ── Nós — pílula com avatar circular (foto ou silhueta) à esquerda ──────
   nos.forEach(function(n){
     var pos = posicoes[n.id]; if(!pos) return;
     var x   = pos.x;
     var y   = pos.y + OFFSET_Y;
     var tc  = tipoFill[n.tipo] || tipoFill.normal;
     var isRaiz = n.tipo === 'raiz';
-    var isGest = n.tipo === 'gestao';
+    var clipId = 'orgclip-'+n.id;
 
-    // Caixa principal com filtro de sombra
+    // Pílula (cantos totalmente arredondados — rx = metade da altura)
     var filterAttr = isRaiz ? ' filter="url(#org-glow)"' : ' filter="url(#org-shadow)"';
     svg += '<rect x="'+x+'" y="'+y+'" width="'+NIL_W+'" height="'+NIL_H+'"'+
-           ' rx="8"'+filterAttr+' fill="'+tc.bg+'" stroke="'+(tc.bord||T.bord)+'" stroke-width="'+(isRaiz?2:1.5)+'"/>';
+           ' rx="'+(NIL_H/2)+'"'+filterAttr+' fill="'+tc.bg+'" stroke="'+(tc.bord||T.bord)+'" stroke-width="'+(isRaiz?2.5:1.5)+'"/>';
 
-    // Barra de acento superior colorida por tipo (mais larga para raiz)
-    var topColor = isRaiz ? T.accent : isGest ? SC.gestaoBg : T.accent+'55';
-    var topH = isRaiz ? 6 : isGest ? 5 : 4;
-    svg += '<rect x="'+x+'" y="'+y+'" width="'+NIL_W+'" height="'+topH+'"'+
-           ' rx="8" fill="'+topColor+'"/>';
-    svg += '<rect x="'+x+'" y="'+(y+topH-2)+'" width="'+NIL_W+'" height="2" fill="'+topColor+'"/>';
-
-    // Dedicação (label faixa lateral)
-    if(n.dedicacao) {
-      var dedColor = n.dedicacao.includes('Total')?T.accent:n.dedicacao.includes('Parcial')?'#f59e0b':'#14b8a6';
-      svg += '<text x="'+(x+5)+'" y="'+(y+NIL_H-6)+'" font-size="7" fill="'+dedColor+'" opacity="0.8">'+escHtml(n.dedicacao)+'</text>';
+    // Avatar circular — foto (se houver) ou silhueta genérica, com anel branco
+    var acx = x + AV_R + 8, acy = y + NIL_H/2;
+    svg += '<circle cx="'+acx+'" cy="'+acy+'" r="'+(AV_R+3)+'" fill="#fff"/>';
+    svg += '<clipPath id="'+clipId+'"><circle cx="'+acx+'" cy="'+acy+'" r="'+AV_R+'"/></clipPath>';
+    if(n.foto) {
+      svg += '<image href="'+n.foto+'" x="'+(acx-AV_R)+'" y="'+(acy-AV_R)+'" width="'+(AV_R*2)+'" height="'+(AV_R*2)+'"'+
+             ' preserveAspectRatio="xMidYMid slice" clip-path="url(#'+clipId+')"/>';
+    } else {
+      svg += '<g clip-path="url(#'+clipId+')">'+
+        '<rect x="'+(acx-AV_R)+'" y="'+(acy-AV_R)+'" width="'+(AV_R*2)+'" height="'+(AV_R*2)+'" fill="#e4e8f0"/>'+
+        '<circle cx="'+acx+'" cy="'+(acy-AV_R*0.28)+'" r="'+(AV_R*0.5)+'" fill="#aab3c5"/>'+
+        '<circle cx="'+acx+'" cy="'+(acy+AV_R*1.05)+'" r="'+(AV_R*1.05)+'" fill="#aab3c5"/>'+
+      '</g>';
     }
+    svg += '<circle cx="'+acx+'" cy="'+acy+'" r="'+AV_R+'" fill="none" stroke="'+(tc.bord||'#fff')+'" stroke-width="1.5"/>';
 
-    // Título (cargo)
+    // Texto: cargo + nome, na área à direita do avatar
+    var txX = x + AV_R*2 + 20;
+    var txW = NIL_W - (AV_R*2 + 28);
+    var charsPerLine = Math.max(8, Math.round(txW/5.6));
+
     var titulo = n.titulo || 'Cargo';
-    var tLines = wrapText(titulo, 20);
-    var tY0 = n.nome ? y+20 : y+(NIL_H/2)+5;
+    var tLines = wrapText(titulo, charsPerLine);
+    var tY0 = n.nome ? y+24 : y+(NIL_H/2)+4;
     tLines.slice(0,2).forEach(function(line, li){
-      svg += '<text x="'+(x+NIL_W/2)+'" y="'+(tY0+li*13)+'"'+
-             ' font-size="10" font-weight="700" fill="'+tc.txt+'" text-anchor="middle">'+escHtml(line)+'</text>';
+      svg += '<text x="'+txX+'" y="'+(tY0+li*12)+'"'+
+             ' font-size="10" font-weight="700" fill="'+tc.txt+'">'+escHtml(line)+'</text>';
     });
 
-    // Nome/Titulação
     if(n.nome) {
-      var nY = tY0 + tLines.slice(0,2).length*13 + 4;
-      svg += '<text x="'+(x+NIL_W/2)+'" y="'+(nY)+'"'+
-             ' font-size="8" fill="'+T.txt2+'" text-anchor="middle" font-style="italic">Titulação</text>';
-      var nomeLines = wrapText(n.nome, 22);
-      nomeLines.slice(0,1).forEach(function(line, li){
-        svg += '<text x="'+(x+NIL_W/2)+'" y="'+(nY+12+li*11)+'"'+
-               ' font-size="10" font-weight="600" fill="'+tc.txt+'" text-anchor="middle">'+escHtml(line)+'</text>';
+      var nY = tY0 + tLines.slice(0,2).length*12 + 5;
+      var nomeLines = wrapText(n.nome, charsPerLine+2);
+      nomeLines.slice(0,1).forEach(function(line){
+        svg += '<text x="'+txX+'" y="'+nY+'" font-size="9.5" fill="'+tc.txt+'" opacity="0.9">'+escHtml(line)+'</text>';
       });
+    }
+
+    // Dedicação — pequena etiqueta no canto inferior direito da pílula
+    if(n.dedicacao) {
+      var dedColor = n.dedicacao.includes('Total')?'#22c55e':n.dedicacao.includes('Parcial')?'#f59e0b':'#14b8a6';
+      svg += '<circle cx="'+(x+NIL_W-12)+'" cy="'+(y+NIL_H-12)+'" r="4" fill="'+dedColor+'"/>';
     }
   });
 
@@ -6385,9 +6450,21 @@ function renderOrganograma() {
 
   svg += '</svg>';
 
-  el.innerHTML = svg;
+  return {svg:svg, svgW:svgW, svgH:svgHTotal};
+}
 
-  // Tornar o SVG scrollável se necessário
+function renderOrganograma() {
+  var el = document.getElementById('org-preview'); if(!el) return;
+  var nomeObra = (document.getElementById('org-nome-obra')||{value:''}).value||'';
+  DB.save('org_nome_obra', nomeObra);
+
+  var built = buildOrgSVG();
+  if(!built) {
+    el.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:300px;color:var(--text3);font-size:13px;">'+
+      'Adicione nós ou clique em <strong style="color:var(--accent);margin:0 4px;">📥 Importar Profissionais</strong> para gerar o organograma.</div>';
+    return;
+  }
+  el.innerHTML = built.svg;
   el.parentElement.style.overflowX = 'auto';
 }
 
@@ -6408,26 +6485,34 @@ function wrapText(str, maxLen) {
 }
 
 // ── IMPRIMIR ORGANOGRAMA ─────────────────────────────────────────
+// Regenera o SVG do zero, SEMPRE no tema claro/impressão (fundo branco,
+// independente do que estiver escolhido na tela) e SEMPRE reescalado, via
+// viewBox + preserveAspectRatio, para caber numa única folha A3 paisagem —
+// não importa quantos nós o organograma tenha.
 function imprimirOrganograma() {
-  var svgEl = document.getElementById('org-svg');
-  if(!svgEl) { showToast('Gere o organograma primeiro!','error'); return; }
+  var built = buildOrgSVG('light');
+  if(!built) { showToast('Gere o organograma primeiro!','error'); return; }
 
   var cfg  = getCfg ? getCfg() : {};
   var nomeObra = (document.getElementById('org-nome-obra')||{value:''}).value || '';
-  var svgStr = svgEl.outerHTML;
 
   var doc = '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">'+
     '<title>Organograma — '+escHtml(nomeObra||cfg.nome||'Obra')+'</title>'+
     '<style>'+
       '*{box-sizing:border-box;margin:0;padding:0;}'+
       'body{background:#fff;display:flex;align-items:flex-start;justify-content:center;padding:10px;}'+
-      'svg{width:100%;height:auto;max-width:100%;}'+
+      // Tela (pré-visualização antes de imprimir): cabe na largura, mantendo proporção
+      'svg{width:100%;max-width:400mm;height:auto;display:block;margin:0 auto;}'+
       '.no-print{position:fixed;top:10px;right:10px;z-index:99;display:flex;gap:8px;}'+
-      '@page{size:A4 landscape;margin:6mm;}'+
+      // A3 paisagem = 420 x 297mm; margem 10mm ⇒ área útil 400 x 277mm
+      '@page{size:A3 landscape;margin:10mm;}'+
       '@media print{'+
         '.no-print{display:none!important}'+
-        'body{padding:0;margin:0;}'+
-        'svg{width:297mm;height:auto;max-height:207mm;}'+
+        'body{padding:0;margin:0;background:#fff;}'+
+        // width+height FIXOS na área útil da página: com viewBox+preserveAspectRatio
+        // no SVG, o conteúdo sempre reescala pra caber inteiro numa página só,
+        // sem cortar e sem depender da quantidade de nós.
+        'svg{width:400mm!important;height:277mm!important;max-width:none;}'+
       '}'+
     '</style></head><body>'+
     '<div class="no-print">'+
@@ -6435,12 +6520,12 @@ function imprimirOrganograma() {
         '🖨 Imprimir / Salvar PDF'+
       '</button>'+
     '</div>'+
-    svgStr+
+    built.svg+
   '</body></html>';
 
   var w = window.open('','_blank');
   if(w){ w.document.write(doc); w.document.close(); }
-  showToast('Organograma pronto para imprimir!','success');
+  showToast('Organograma pronto para imprimir — ajustado para A3 paisagem!','success');
 }
 
 
