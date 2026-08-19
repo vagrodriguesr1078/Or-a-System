@@ -11793,9 +11793,13 @@ function limparSimulacao() {
 
 // mostrarHistoricoRevisoes — versão completa com botões definida abaixo (V31)
 
-// ══ GERAÇÃO DE NOVO ORÇAMENTO COM DESCONTO ══
-// NOVA LÓGICA: Cada desconto gera um NOVO ORÇAMENTO independente na lista
-// Ex: ORC-2026-000 (original) → ORC-2026-001 (c/ desconto) → ORC-2026-002 (c/ desconto acumulado)
+// ══ APLICAÇÃO DE DESCONTO COMO REVISÃO DO MESMO ORÇAMENTO ══
+// Cria uma revisão sequencial (REV-01, REV-02...) DENTRO do próprio orçamento
+// selecionado — não cria um orçamento novo/independente na lista. A 1ª
+// revisão preserva uma cópia intocada do estado original em orc.snapOriginal
+// (usada por "Abrir Original"); os campos de topo do orçamento passam a
+// refletir a revisão mais recente, para que a lista, a edição e os
+// relatórios mostrem o valor atual sem precisar saber de orc.revisaoAtual.
 
 function aplicarDescontoRevisao() {
   if (!_simDados || (_simDados.areas.length === 0 && !_simDados.descontoImp && !_simDados.descontoTax)) {
@@ -11808,31 +11812,47 @@ function aplicarDescontoRevisao() {
   if (idx < 0) return;
 
   var orc = orcs[idx];
-  
-  // Gerar novo código sequencial
-  var novoCod = gerarNovoCodigoOrcamento(orc.cod);
-  
-  if (!confirm('Confirmar aplicação do desconto de ' + _simDados.percentual + '%?\n\nSerá criado um NOVO ORÇAMENTO:\n' + novoCod + '\n\nValor Original: ' + fmt(_simDados.valorBase) + '\nValor com Desconto: ' + fmt(_simDados.valorComDesconto) + '\nEconomia: ' + fmt(_simDados.economia))) {
+  orc.revisoes = orc.revisoes || [];
+
+  // Código sequencial da nova revisão (REV-01, REV-02...) deste orçamento
+  var novoCodRev = 'REV-' + String(orc.revisoes.length + 1).padStart(2, '0');
+
+  if (!confirm('Confirmar aplicação do desconto de ' + _simDados.percentual + '%?\n\nSerá criada a revisão ' + novoCodRev + ' do orçamento ' + orc.cod + '\n\nValor Original: ' + fmt(_simDados.valorBase) + '\nValor com Desconto: ' + fmt(_simDados.valorComDesconto) + '\nEconomia: ' + fmt(_simDados.economia))) {
     return;
   }
 
-  // ── PREPARAR DADOS BASE (do orçamento original ou revisão anterior) ──
+  // ── PREPARAR DADOS BASE (do orçamento atual ou revisão anterior aberta) ──
   var baseDados = orc;
-  
-  // Se estamos criando a partir de uma revisão anterior, usar os dados da revisão
-  if (_revisaoAberta && orc.revisoes && orc.revisoes.length > 0) {
+  if (_revisaoAberta && orc.revisoes.length > 0) {
     var revAnterior = orc.revisoes.find(function(r) { return r.codigo === _revisaoAberta; });
     if (revAnterior && revAnterior.itensRevisados) {
       baseDados = Object.assign({}, orc, revAnterior.itensRevisados);
     }
   }
-  
+
+  // ── PRESERVAR O ORIGINAL INTOCADO (só na 1ª revisão deste orçamento) ──
+  if (!orc.snapOriginal) {
+    orc.snapOriginal = {
+      valor:        orc.valor,
+      fasesOrc:     JSON.parse(JSON.stringify(orc.fasesOrc     || [])),
+      hhItens:      JSON.parse(JSON.stringify(orc.hhItens      || [])),
+      hmItens:      JSON.parse(JSON.stringify(orc.hmItens      || [])),
+      matItens:     JSON.parse(JSON.stringify(orc.matItens     || [])),
+      outItens:     JSON.parse(JSON.stringify(orc.outItens     || [])),
+      consItens:    JSON.parse(JSON.stringify(orc.consItens    || [])),
+      tercItens:    JSON.parse(JSON.stringify(orc.tercItens    || [])),
+      impostosFase: JSON.parse(JSON.stringify(orc.impostosFase || [])),
+      percImp:      orc.percImp,
+      percTaxa:     orc.percTaxa
+    };
+  }
+
   // ── APLICAR DESCONTO NOS ITENS ──
   var fator = 1 - (_simDados.percentual / 100);
   var chaveMap = { hh:'hhItens', hm:'hmItens', mat:'matItens', out:'outItens', cons:'consItens', terc:'tercItens' };
 
   // Copiar todos os itens
-  var novoOrcItens = {
+  var itensRev = {
     fasesOrc:     JSON.parse(JSON.stringify(baseDados.fasesOrc   || [])),
     hhItens:      JSON.parse(JSON.stringify(baseDados.hhItens    || [])),
     hmItens:      JSON.parse(JSON.stringify(baseDados.hmItens    || [])),
@@ -11846,9 +11866,9 @@ function aplicarDescontoRevisao() {
   // Aplicar desconto nas áreas selecionadas
   _simDados.areas.forEach(function(area) {
     var key = chaveMap[area];
-    if (!key || !novoOrcItens[key]) return;
+    if (!key || !itensRev[key]) return;
 
-    novoOrcItens[key] = novoOrcItens[key].map(function(item) {
+    itensRev[key] = itensRev[key].map(function(item) {
       var it = JSON.parse(JSON.stringify(item));
 
       if (area === 'hh') {
@@ -11882,116 +11902,58 @@ function aplicarDescontoRevisao() {
     });
   });
 
-  // ── CRIAR NOVO ORÇAMENTO ──
-  var newId = orcs.length ? Math.max.apply(null, orcs.map(function(o) { return o.id; })) + 1 : 1;
-  
-  // Calcular taxas
-  var taxasRev = resolverTaxas(orc);
+  // ── IMPOSTOS/TAXAS: mesma regra do preview (atualizarSimulacao) — só
+  //    reduz se o BDI não estiver ativo, senão a caixa marcada não teria
+  //    efeito nenhum no valor mostrado e ainda assim alteraria o dado salvo ──
+  var bdiSimAplicar   = calcularBDI();
+  var bdiAtivoAplicar = bdiSimAplicar.pct > 0;
+  var taxasRev = resolverTaxas(baseDados);
   var pImp = taxasRev.pImp;
   var pTax = taxasRev.pTax;
-  
-  if (_simDados.descontoImp) pImp = pImp * fator;
-  if (_simDados.descontoTax) pTax = pTax * fator;
+  if (_simDados.descontoImp && !bdiAtivoAplicar) pImp = pImp * fator;
+  if (_simDados.descontoTax && !bdiAtivoAplicar) pTax = pTax * fator;
+  itensRev.percImp  = pImp;
+  itensRev.percTaxa = pTax;
+  itensRev.valor    = _simDados.valorComDesconto;
 
-  // Preparar histórico de evolução
-  var historicoEvolucao = [];
-  
-  // Adicionar orçamento original ao histórico
-  historicoEvolucao.push({
-    codigo: orc.cod,
-    valor: _simDados.valorBase,
-    data: orc.data,
-    tipo: 'original',
-    percentual: 0,
-    economia: 0
-  });
-  
-  // Se houver revisões anteriores, adicionar ao histórico
-  if (orc.revisoes && orc.revisoes.length > 0) {
-    orc.revisoes.forEach(function(rev) {
-      historicoEvolucao.push({
-        codigo: rev.codigo,
-        valor: rev.valorComDesconto,
-        data: rev.data,
-        tipo: 'revisao',
-        percentual: rev.percentual,
-        economia: rev.economia,
-        areas: rev.areas || []
-      });
-    });
-  }
-
-  var novoOrcamento = {
-    id: newId,
-    cod: novoCod,
-    desc: orc.desc + ' (Desconto ' + _simDados.percentual + '%)',
-    cliente: orc.cliente,
-    local: orc.local,
-    prazo: orc.prazo,
-    obs: orc.obs,
-    tipo: orc.tipo,
-    valor: _simDados.valorComDesconto,
-    status: 'elaboracao',
-    data: new Date().toISOString().split('T')[0],
-    faturamento: orc.faturamento,
-    
-    // Itens com desconto aplicado
-    fasesOrc: novoOrcItens.fasesOrc,
-    hhItens: novoOrcItens.hhItens,
-    hmItens: novoOrcItens.hmItens,
-    matItens: novoOrcItens.matItens,
-    outItens: novoOrcItens.outItens,
-    consItens: novoOrcItens.consItens,
-    tercItens: novoOrcItens.tercItens,
-    impostosFase: novoOrcItens.impostosFase,
-    
-    percImp: pImp,
-    percTaxa: pTax,
-    
-    // Referência ao orçamento original
-    orcamentoOriginal: {
-      id: orc.id,
-      cod: orc.cod,
-      valor: _simDados.valorBase
-    },
-    
-    // Histórico de evolução
-    historicoEvolucao: historicoEvolucao,
-    
-    // Informações do desconto aplicado
-    descontoAplicado: {
-      percentual: _simDados.percentual,
-      areas: _simDados.areas,
-      valorOriginal: _simDados.valorBase,
-      valorComDesconto: _simDados.valorComDesconto,
-      economia: _simDados.economia,
-      data: new Date().toISOString()
-    },
-    
-    // Snapshot original (cópia dos dados atuais)
-    snapOriginal: {
-      valor: _simDados.valorComDesconto,
-      fasesOrc: JSON.parse(JSON.stringify(novoOrcItens.fasesOrc)),
-      hhItens: JSON.parse(JSON.stringify(novoOrcItens.hhItens)),
-      hmItens: JSON.parse(JSON.stringify(novoOrcItens.hmItens)),
-      matItens: JSON.parse(JSON.stringify(novoOrcItens.matItens)),
-      outItens: JSON.parse(JSON.stringify(novoOrcItens.outItens)),
-      consItens: JSON.parse(JSON.stringify(novoOrcItens.consItens)),
-      tercItens: JSON.parse(JSON.stringify(novoOrcItens.tercItens)),
-      impostosFase: JSON.parse(JSON.stringify(novoOrcItens.impostosFase)),
-      percImp: pImp,
-      percTaxa: pTax
-    }
+  // ── REGISTRAR A REVISÃO NO PRÓPRIO ORÇAMENTO ──
+  var novaRevisao = {
+    codigo:           novoCodRev,
+    percentual:       _simDados.percentual,
+    areas:            _simDados.areas,
+    descontoImp:      _simDados.descontoImp,
+    descontoTax:      _simDados.descontoTax,
+    valorOriginal:    _simDados.valorBase,
+    valorComDesconto: _simDados.valorComDesconto,
+    economia:         _simDados.economia,
+    data:             new Date().toISOString().split('T')[0],
+    itensRevisados:   itensRev
   };
 
-  // Salvar novo orçamento
-  orcs.push(novoOrcamento);
+  orc.revisoes.push(novaRevisao);
+  orc.revisaoAtual = novoCodRev;
+
+  // A proposta passa a refletir a revisão mais recente (lista, edição e
+  // relatórios que leem os campos de topo diretamente já mostram o atual).
+  orc.valor        = itensRev.valor;
+  orc.fasesOrc     = itensRev.fasesOrc;
+  orc.hhItens      = itensRev.hhItens;
+  orc.hmItens      = itensRev.hmItens;
+  orc.matItens     = itensRev.matItens;
+  orc.outItens     = itensRev.outItens;
+  orc.consItens    = itensRev.consItens;
+  orc.tercItens    = itensRev.tercItens;
+  orc.impostosFase = itensRev.impostosFase;
+  orc.percImp      = itensRev.percImp;
+  orc.percTaxa     = itensRev.percTaxa;
+
+  orcs[idx] = orc;
   DB.save('orcamentos', orcs);
 
   // Registrar atividade
-  addAtividade('🎯 Novo orçamento gerado com desconto: ' + novoCod + ' (' + _simDados.percentual + '%) a partir de ' + orc.cod, '#22c55e');
+  addAtividade('🎯 Revisão ' + novoCodRev + ' aplicada em ' + orc.cod + ' — desconto de ' + _simDados.percentual + '%', '#22c55e');
 
-  showToast('✅ Novo orçamento criado: ' + novoCod + ' — Valor: ' + fmt(_simDados.valorComDesconto), 'success');
+  showToast('✅ Revisão ' + novoCodRev + ' criada em ' + orc.cod + ' — Valor: ' + fmt(_simDados.valorComDesconto), 'success');
 
   // Fechar modal de simulação
   fecharSimulacao();
@@ -11999,44 +11961,10 @@ function aplicarDescontoRevisao() {
   // Atualizar lista de orçamentos
   renderOrcamentos();
 
-  // Abrir o novo orçamento para edição
+  // Abrir a revisão recém-criada para conferência
   setTimeout(function() {
-    editarOrcamento(newId);
+    abrirRevisaoOrcamento(orc.id, novoCodRev);
   }, 500);
-}
-
-// Função auxiliar para gerar novo código sequencial
-function gerarNovoCodigoOrcamento(codAtual) {
-  // Extrair ano e número do código atual
-  var match = codAtual.match(/ORC-(\d{4})-(\d+)/);
-  if (!match) {
-    // Se não conseguir extrair, usar formato padrão
-    var orcs = DB.load('orcamentos') || [];
-    var maxNum = 0;
-    orcs.forEach(function(o) {
-      var m = o.cod.match(/ORC-(\d{4})-(\d+)/);
-      if (m) {
-        var num = parseInt(m[2]);
-        if (num > maxNum) maxNum = num;
-      }
-    });
-    var ano = new Date().getFullYear();
-    return 'ORC-' + ano + '-' + String(maxNum + 1).padStart(3, '0');
-  }
-  
-  var ano = match[1];
-  var numAtual = parseInt(match[2]);
-  var novoNum = numAtual + 1;
-  
-  // Verificar se já existe este código
-  var orcs = DB.load('orcamentos') || [];
-  var codExistentes = orcs.map(function(o) { return o.cod; });
-  
-  while (codExistentes.indexOf('ORC-' + ano + '-' + String(novoNum).padStart(3, '0')) >= 0) {
-    novoNum++;
-  }
-  
-  return 'ORC-' + ano + '-' + String(novoNum).padStart(3, '0');
 }
 
 // ══ FUNÇÃO: Mostrar Histórico de Revisões Melhorado ══
