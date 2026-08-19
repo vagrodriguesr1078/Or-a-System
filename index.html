@@ -103,36 +103,66 @@ body {
 /* ═══ LOGIN ═══ */
 #login-screen {
   position: fixed; inset: 0;
-  background: var(--bg);
-  display: flex; align-items: center; justify-content: center;
+  display: flex;
   z-index: 9999;
-  background-image: radial-gradient(ellipse at 30% 50%, rgba(79,110,247,0.08) 0%, transparent 60%),
-                     radial-gradient(ellipse at 70% 80%, rgba(139,92,246,0.06) 0%, transparent 50%);
+  background: var(--bg);
 }
-.login-card {
-  background: var(--bg2);
-  border: 1px solid var(--border2);
-  border-radius: var(--radius-xl);
-  padding: 48px 40px;
-  width: 400px;
-  box-shadow: var(--shadow-lg), 0 0 80px rgba(79,110,247,0.06);
-  animation: loginFadeIn 0.5s ease-out;
+.login-left{
+  flex:1 1 55%; position:relative; overflow:hidden;
+  background: linear-gradient(160deg, #0b0f1a 0%, #12172a 45%, #171b28 100%);
+  padding:56px 64px; display:flex; flex-direction:column; justify-content:center;
+  border-right:1px solid var(--border2);
 }
+.login-left::before{
+  content:''; position:absolute; inset:0;
+  background-image: radial-gradient(ellipse at 20% 20%, rgba(79,110,247,0.18) 0%, transparent 55%),
+                     radial-gradient(ellipse at 85% 75%, rgba(139,92,246,0.14) 0%, transparent 50%);
+  pointer-events:none;
+}
+.login-left::after{
+  content:''; position:absolute; top:0; left:0; right:0; height:3px;
+  background: linear-gradient(90deg, var(--accent), var(--purple), var(--accent));
+}
+.login-brand{position:relative;z-index:2}
+.login-logo2{
+  width:56px; height:56px; border-radius:16px;
+  background: linear-gradient(135deg, var(--accent), var(--purple));
+  display:flex; align-items:center; justify-content:center; font-size:26px;
+  margin-bottom:20px; box-shadow:0 8px 32px rgba(79,110,247,0.3);
+}
+.login-title{font-size:32px;font-weight:800;letter-spacing:-0.5px;font-family:var(--font-display);color:var(--text);line-height:1.15;margin-bottom:14px}
+.login-title span{display:block;color:var(--accent)}
+.login-desc{font-size:15px;color:var(--text2);line-height:1.65;max-width:400px;font-weight:400}
+.login-features{position:relative;z-index:2;display:flex;flex-direction:column;gap:14px;margin-top:44px}
+.login-feature{
+  display:flex;align-items:center;gap:14px;padding:14px 16px;
+  background:rgba(255,255,255,.03);border:1px solid var(--border2);
+  border-radius:var(--radius);transition:all .15s;
+}
+.login-feature:hover{background:rgba(255,255,255,.05);border-color:var(--accent);transform:translateX(4px)}
+.login-feat-icon{
+  width:38px;height:38px;border-radius:10px;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;font-size:17px;
+}
+.login-feat-icon.v1{background:rgba(79,110,247,.15);border:1px solid rgba(79,110,247,.25)}
+.login-feat-icon.v2{background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.25)}
+.login-feat-icon.v3{background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.2)}
+.login-feat-icon.v4{background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.2)}
+.login-feat-text{font-size:13px;color:var(--text2);font-weight:500;line-height:1.4}
+.login-feat-text strong{color:var(--text);font-weight:600;display:block;font-size:13px}
+.login-footer{position:relative;z-index:2;font-size:11px;color:var(--text3);font-weight:500;margin-top:44px}
+.login-right{
+  flex:1 1 45%; display:flex; align-items:center; justify-content:center;
+  padding:40px; background:var(--bg);
+  background-image: radial-gradient(ellipse at 70% 30%, rgba(79,110,247,0.06) 0%, transparent 55%);
+}
+.login-form-wrap{width:100%;max-width:360px;animation:loginFadeIn 0.5s ease-out}
+.login-form-title{font-size:22px;font-weight:800;font-family:var(--font-display);color:var(--text);margin-bottom:6px}
+.login-form-sub{font-size:13px;color:var(--text2);margin-bottom:28px}
 @keyframes loginFadeIn {
   from { opacity: 0; transform: translateY(16px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
-.login-logo { text-align: center; margin-bottom: 32px; }
-.login-logo .logo-mark {
-  width: 60px; height: 60px;
-  background: linear-gradient(135deg, var(--accent), #8B5CF6);
-  border-radius: 16px;
-  display: inline-flex; align-items: center; justify-content: center;
-  margin-bottom: 16px; font-size: 26px;
-  box-shadow: 0 8px 32px rgba(79,110,247,0.3);
-}
-.login-logo h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; font-family: var(--font-display); }
-.login-logo p { color: var(--text2); font-size: 13px; margin-top: 4px; }
 .form-group { margin-bottom: 18px; }
 .form-group label {
   display: block; font-size: 11px; color: var(--text2);
@@ -794,12 +824,14 @@ tr:hover td { background: rgba(79,110,247,0.05); }
   .builder-layout { grid-template-columns: 1fr; }
   .sidebar { display: none; }
   .topbar nav { display: none; }
+  .login-left { display: none; }
+  .login-right { flex: 1 1 100%; }
 }
 @media (max-width: 480px) {
   .stats-grid { grid-template-columns: 1fr; }
   .content { padding: 16px; }
   .modal { border-radius: var(--radius-lg); }
-  .login-card { width: 92vw; padding: 32px 24px; }
+  .login-right { padding: 24px; }
 }
 
 /* ═══ PRINT ═══ */
@@ -823,25 +855,50 @@ tr:hover td { background: rgba(79,110,247,0.05); }
 
 <!-- LOGIN -->
 <div id="login-screen">
-  <div class="login-card">
-    <div class="login-logo">
-      <div class="logo-mark">⚡</div>
-      <h1>OrcaSystem Pro — Vagner</h1>
-      <p>Sistema de Gestão de Orçamentos — V35</p>
+  <div class="login-left">
+    <div class="login-brand">
+      <div class="login-logo2">⚡</div>
+      <div class="login-title">OrcaSystem<br><span>Pro</span></div>
+      <div class="login-desc">Sistema de Gestão de Orçamentos — orçamentos, custos e materiais de obra num só lugar, sincronizado na nuvem.</div>
     </div>
-    <div class="form-group">
-      <label>Usuário</label>
-      <input type="text" id="login-user" placeholder="admin" />
+    <div class="login-features">
+      <div class="login-feature">
+        <div class="login-feat-icon v1">📋</div>
+        <div class="login-feat-text"><strong>Gestão de Orçamentos</strong>Crie, acompanhe e reajuste orçamentos de obra com histórico completo</div>
+      </div>
+      <div class="login-feature">
+        <div class="login-feat-icon v2">🧱</div>
+        <div class="login-feat-text"><strong>Materiais, Mão de Obra e Máquinas</strong>Preços, fornecedores e composições de custo centralizados</div>
+      </div>
+      <div class="login-feature">
+        <div class="login-feat-icon v3">📊</div>
+        <div class="login-feat-text"><strong>Painel Geral com Indicadores</strong>Visão consolidada de custos e andamento de todos os projetos</div>
+      </div>
+      <div class="login-feature">
+        <div class="login-feat-icon v4">☁️</div>
+        <div class="login-feat-text"><strong>Sincronização na Nuvem</strong>Dados protegidos e acessíveis em qualquer dispositivo, em tempo real</div>
+      </div>
     </div>
-    <div class="form-group">
-      <label>Senha</label>
-      <input type="password" id="login-pass" placeholder="••••••••" />
-    </div>
-    <button class="btn-primary" onclick="doLogin()">Entrar no Sistema</button>
-    <div class="login-error" id="login-error">❌ Credenciais inválidas. Tente novamente.</div>
-    <div style="margin-top:20px;padding:12px;background:var(--bg3);border-radius:8px;font-size:12px;color:var(--text2);">
-      🔒 <strong>Acesso restrito.</strong> Use suas credenciais master.<br>
-      <span style="opacity:0.6;font-size:11px;">Em caso de dúvidas, contate o administrador do sistema.</span>
+    <div class="login-footer">OrcaSystem Pro &nbsp;·&nbsp; Sistema de Gestão de Orçamentos &nbsp;·&nbsp; V35</div>
+  </div>
+  <div class="login-right">
+    <div class="login-form-wrap">
+      <div class="login-form-title">Bem-vindo</div>
+      <div class="login-form-sub">Acesse sua conta para continuar</div>
+      <div class="form-group">
+        <label>Usuário</label>
+        <input type="text" id="login-user" placeholder="admin" />
+      </div>
+      <div class="form-group">
+        <label>Senha</label>
+        <input type="password" id="login-pass" placeholder="••••••••" />
+      </div>
+      <button class="btn-primary" onclick="doLogin()">Entrar no Sistema →</button>
+      <div class="login-error" id="login-error">❌ Credenciais inválidas. Tente novamente.</div>
+      <div style="margin-top:20px;padding:12px;background:var(--bg3);border-radius:8px;font-size:12px;color:var(--text2);">
+        🔒 <strong>Acesso restrito.</strong> Use suas credenciais master.<br>
+        <span style="opacity:0.6;font-size:11px;">Em caso de dúvidas, contate o administrador do sistema.</span>
+      </div>
     </div>
   </div>
 </div>
@@ -8636,7 +8693,7 @@ function gerarRelatorio(orcId) {
     // ── RODAPÉ ──
     '<div class="ft">'+
       '<div>'+cfg.razao+' — CNPJ: '+cfg.cnpj+' — '+cfg.tel+' — '+cfg.email+(cfg.site?' — '+cfg.site:'')+'</div>'+
-      '<div>Gerado em '+new Date().toLocaleString('pt-BR')+' | OrcaSystem Pro — Vagner</div>'+
+      '<div>Gerado em '+new Date().toLocaleString('pt-BR')+' | OrcaSystem Pro</div>'+
     '</div>'+
   '</div>'+ /* fecha content-wrap */
   '</body></html>';
