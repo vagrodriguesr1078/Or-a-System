@@ -10194,6 +10194,11 @@ function editarOrcamento(id) {
   var orc = list.find(function(o){return o.id===id;});
   if (!orc) return;
   _editOrcId = id;
+  // Editor "normal": nunca deve herdar uma revisão legada deixada aberta por
+  // uma visita anterior a abrirRevisaoOrcamento()/gerarRelatorio() na mesma
+  // aba — sem isso, calcResumo()/gerarRelatorio() podem tentar ler
+  // orc.revisoes numa revisão que não existe mais neste orçamento.
+  _revisaoAberta = null;
 
   // Navegar para a tela Novo Orçamento
   showPage('novo', _navBtn('➕ Novo'));
@@ -12002,9 +12007,12 @@ function aplicarDescontoRevisao() {
   orcs.push(novoOrcamento);
   DB.save('orcamentos', orcs);
 
-  addAtividade('🎯 ' + novoCodRev + ' criada a partir de ' + orc.cod + ' (' + _simDados.percentual + '% de desconto) — ' + orc.cod + ' permanece inalterado', '#22c55e');
+  var totalItensCopiados = novoOrcItens.hhItens.length + novoOrcItens.hmItens.length + novoOrcItens.matItens.length +
+    novoOrcItens.outItens.length + novoOrcItens.consItens.length + novoOrcItens.tercItens.length;
 
-  showToast('✅ Novo orçamento criado: ' + novoOrcamento.cod + ' — Valor: ' + fmt(_simDados.valorComDesconto), 'success');
+  addAtividade('🎯 ' + novoCodRev + ' criada a partir de ' + orc.cod + ' (' + _simDados.percentual + '% de desconto, ' + totalItensCopiados + ' itens) — ' + orc.cod + ' permanece inalterado', '#22c55e');
+
+  showToast('✅ Novo orçamento criado: ' + novoOrcamento.cod + ' — ' + totalItensCopiados + ' item(ns) copiado(s) — Valor: ' + fmt(_simDados.valorComDesconto), 'success');
 
   fecharSimulacao();
   renderOrcamentos();
