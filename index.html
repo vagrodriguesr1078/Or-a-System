@@ -6321,20 +6321,17 @@ function buildOrgSVG(estiloForce) {
             ' style="font-family:Inter,Arial,sans-serif;background:'+T.bg+';" id="org-svg">';
   svg += '<rect x="0" y="0" width="'+svgW+'" height="'+svgHTotal+'" fill="'+T.bg+'"/>';
 
-  // ── Header: cliente ESQUERDO · título CENTRO · empresa DIREITO ──────────
+  // ── Header: empresa ESQUERDO · título CENTRO · cliente DIREITO ──────────
   var HDR_H = 70;
   svg += '<rect width="'+svgW+'" height="'+HDR_H+'" fill="'+T.accent+'" opacity="0.08" rx="0"/>';
   svg += '<rect width="'+svgW+'" height="3" fill="'+T.accent+'" opacity="0.6"/>';
 
-  // Logo CLIENTE — canto ESQUERDO
-  var logosCli = DB.load('logos_clientes')||{};
-  var priCli   = Object.values(logosCli)[0];
-  if(priCli) {
-    svg += '<image href="'+priCli+'" x="14" y="8" height="52" width="150" preserveAspectRatio="xMinYMid meet"/>';
+  // Logo EMPRESA — canto ESQUERDO
+  if(logoEmp) {
+    svg += '<image href="'+logoEmp+'" x="14" y="8" height="52" width="150" preserveAspectRatio="xMinYMid meet"/>';
   } else {
-    // Sem logo cliente: espaço reservado
-    svg += '<rect x="14" y="10" width="120" height="48" rx="4" fill="'+T.bord+'"/>';
-    svg += '<text x="74" y="36" font-size="8" fill="'+T.txt2+'" text-anchor="middle">CLIENTE</text>';
+    svg += '<text x="14" y="'+(HDR_H/2-6)+'" font-size="12" font-weight="800" fill="'+T.accent+'">'+escHtml(cfg.nome||'RTB SOLUÇÕES')+'</text>';
+    svg += '<text x="14" y="'+(HDR_H/2+10)+'" font-size="9" fill="'+T.txt2+'">'+escHtml(cfg.segmento||'Engenharia')+'</text>';
   }
 
   // TÍTULO — CENTRO
@@ -6349,12 +6346,15 @@ function buildOrgSVG(estiloForce) {
     if(descProj) svg += '<text x="'+(svgW/2)+'" y="'+(HDR_H/2+12)+'" font-size="11" fill="'+T.txt2+'" text-anchor="middle">'+escHtml(descProj.substring(0,60))+'</text>';
   }
 
-  // Logo EMPRESA — canto DIREITO
-  if(logoEmp) {
-    svg += '<image href="'+logoEmp+'" x="'+(svgW-164)+'" y="8" height="52" width="150" preserveAspectRatio="xMaxYMid meet"/>';
+  // Logo CLIENTE — canto DIREITO
+  var logosCli = DB.load('logos_clientes')||{};
+  var priCli   = Object.values(logosCli)[0];
+  if(priCli) {
+    svg += '<image href="'+priCli+'" x="'+(svgW-164)+'" y="8" height="52" width="150" preserveAspectRatio="xMaxYMid meet"/>';
   } else {
-    svg += '<text x="'+(svgW-14)+'" y="'+(HDR_H/2-6)+'" font-size="12" font-weight="800" fill="'+T.accent+'" text-anchor="end">'+escHtml(cfg.nome||'RTB SOLUÇÕES')+'</text>';
-    svg += '<text x="'+(svgW-14)+'" y="'+(HDR_H/2+10)+'" font-size="9" fill="'+T.txt2+'" text-anchor="end">'+escHtml(cfg.segmento||'Engenharia')+'</text>';
+    // Sem logo cliente: espaço reservado
+    svg += '<rect x="'+(svgW-134)+'" y="10" width="120" height="48" rx="4" fill="'+T.bord+'"/>';
+    svg += '<text x="'+(svgW-74)+'" y="36" font-size="8" fill="'+T.txt2+'" text-anchor="middle">CLIENTE</text>';
   }
 
   // Linha separadora
