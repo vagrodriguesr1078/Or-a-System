@@ -8324,6 +8324,32 @@ function gerarRelatorio(orcId) {
   var subInnovaFat = subInnova + valorBDIRel + tFatRel;
   var subTotal     = subInnovaFat + subDireto_fat;
 
+  // ── Impostos por Fase (adicionais, sempre somados) — mesma lógica de calcResumo() ──
+  // [FIX] Antes o relatório ignorava esse valor, então o TOTAL GERAL impresso
+  // ficava menor do que o valor salvo do orçamento (que já inclui isso).
+  var tImpFaseRel = 0;
+  try {
+    var _impFaseArrRel = _orcDados.impostosFase || orc.impostosFase || [];
+    _impFaseArrRel.forEach(function(impF) {
+      if (!impF || !impF.valor) return;
+      if (impF.tipo === 'fixo') {
+        tImpFaseRel += parseFloat(impF.valor) || 0;
+      } else {
+        var fasesSelecionadasRel = impF.fases || [];
+        var subFasesRel = 0;
+        if (fasesSelecionadasRel.length === 0 || impF.todasFases) {
+          subFasesRel = subInnova;
+        } else {
+          fasesSelecionadasRel.forEach(function(fi) {
+            var fd = faseDetRel.find(function(x){return x.fi === fi;});
+            if (fd) subFasesRel += fd.subFase || 0;
+          });
+        }
+        tImpFaseRel += subFasesRel * ((parseFloat(impF.valor) || 0) / 100);
+      }
+    });
+  } catch(e) { tImpFaseRel = 0; console.warn('tImpFaseRel:', e.message); }
+
   // Se não houver itens detalhados, usar valor salvo e distribuir proporcionalmente
   // CORREÇÃO: Usar valor da revisão se disponível, senão valor do orçamento
   if (subTotal === 0) {
@@ -8342,7 +8368,7 @@ function gerarRelatorio(orcId) {
   // Se BDI está ativo, impostos já estão embutidos na fórmula — não duplicar
   var tImp = (bdiRel.pct > 0) ? 0 : (subInnovaFat * pImp);
   var tTax = 0;
-  var totalGeral = subInnovaFat + tImp + subDireto_fat;
+  var totalGeral = subInnovaFat + tImp + subDireto_fat + tImpFaseRel;
   var subDireto  = subTotal; // alias para HTML
 
 
@@ -8758,7 +8784,7 @@ function gerarRelatorio(orcId) {
         {l:'Outros',v:tOut,c:'#f59e0b'},{l:'Hora Homem',v:tHH,c:'#22c55e'},
         {l:'Hora Maq.',v:tHM,c:'#14b8a6'},{l:'Terceiros',v:tTerc,c:'#f97316'},
         {l:'BDI',v:valorBDIRel,c:'#0d9488'},{l:'Fator Venda',v:tFatRel,c:'#7c3aed'},
-        {l:'Impostos',v:tImp,c:'#ef4444'}
+        {l:'Impostos',v:tImp,c:'#ef4444'},{l:'Imp. por Fase',v:tImpFaseRel,c:'#dc2626'}
       ].filter(function(d){return d.v>0;});
       if(!dados.length) return '';
       var soma=dados.reduce(function(s,d){return s+d.v;},0)||1;
@@ -8808,6 +8834,7 @@ function gerarRelatorio(orcId) {
         '<div class="row"><span class="lbl">Subtotal Innova (c/ BDI+FV)</span><span class="val">'+fmt(subInnovaFat)+'</span></div>'+
         (subDireto_fat>0?'<div class="row"><span class="lbl" style="color:#166534">💵 Fat. Direto</span><span class="val" style="color:#166534">'+fmt(subDireto_fat)+'</span></div>':'')+
         (tImp>0?'<div class="row"><span class="lbl" style="color:#dc2626">Impostos NF ('+Math.round(pImp*100)+'%)</span><span class="val" style="color:#dc2626">'+fmt(tImp)+'</span></div>':'')+
+        (tImpFaseRel>0?'<div class="row"><span class="lbl" style="color:#dc2626">Impostos por Fase</span><span class="val" style="color:#dc2626">'+fmt(tImpFaseRel)+'</span></div>':'')+
         '<div class="row grand" style="border-top:2px solid var(--c1);margin-top:6px;padding-top:10px"><span class="lbl" style="color:var(--c1);font-weight:700">TOTAL GERAL</span><span class="val">'+fmt(totalGeral)+'</span></div>'+
       '</div>'+
     '</div>'+
